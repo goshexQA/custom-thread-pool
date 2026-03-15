@@ -1,7 +1,6 @@
-﻿package com.concurrent.pool;
+package com.concurrent.pool;
 
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.*;
 
 public class Main {
@@ -22,8 +21,8 @@ public class Main {
         // Тест 2: Перегрузка и политика отказа
         testOverloadHandling();
 
-        // Тест 3: Поддержание минимального числа резервных потоков
-        testMinSpareThreads();
+        // Тест 3: Множество задач
+        testMultipleTasks();
 
         // Тест 4: Shutdown и завершение
         testShutdown();
@@ -34,13 +33,8 @@ public class Main {
 
         CustomThreadPoolExecutor pool = new CustomThreadPoolExecutor.Builder()
                 .corePoolSize(2)
-                .maxPoolSize(4)
                 .queueSize(3)
-                .keepAliveTime(2)
-                .timeUnit(TimeUnit.SECONDS)
-                .minSpareThreads(1)
-                .poolName("test1")
-                .rejectedHandler(new CallerRunsPolicy())
+                .poolName("basic")
                 .build();
 
         // Отправляем 5 задач
@@ -57,107 +51,106 @@ public class Main {
             });
         }
 
-        Thread.sleep(10000); // Ждем выполнения
+        Thread.sleep(8000); // Ждем выполнения
         pool.shutdown();
-        Thread.sleep(2000);
+        pool.awaitTermination(2, TimeUnit.SECONDS);
     }
 
     private static void testOverloadHandling() throws InterruptedException {
-        logger.info("\n--- Тест 2: Обработка перегрузки (AbortPolicy) ---");
+        logger.info("\n--- Тест 2: Обработка перегрузки ---");
 
         CustomThreadPoolExecutor pool = new CustomThreadPoolExecutor.Builder()
                 .corePoolSize(1)
-                .maxPoolSize(2)
-                .queueSize(2)
-                .keepAliveTime(1)
-                .timeUnit(TimeUnit.SECONDS)
-                .poolName("test2")
+                .queueSize(1)
+                .poolName("overload")
                 .rejectedHandler(new AbortPolicy())
                 .build();
 
-        // Отправляем больше задач, чем может обработать пул
-        for (int i = 1; i <= 10; i++) {
-            final int taskId = i;
-            try {
-                pool.execute(() -> {
-                    try {
-                        logger.info("=== Задача " + taskId + " выполняется");
-                        Thread.sleep(2000);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
-                });
-                Thread.sleep(100);
-            } catch (Exception e) {
-                logger.warning("!!! Задача " + taskId + " отклонена: " + e.getMessage());
-            }
-        }
-
-        Thread.sleep(5000);
-        pool.shutdown();
-    }
-
-    private static void testMinSpareThreads() throws InterruptedException {
-        logger.info("\n--- Тест 3: Поддержание минимального числа резервных потоков ---");
-
-        CustomThreadPoolExecutor pool = new CustomThreadPoolExecutor.Builder()
-                .corePoolSize(2)
-                .maxPoolSize(5)
-                .queueSize(5)
-                .keepAliveTime(2)
-                .timeUnit(TimeUnit.SECONDS)
-                .minSpareThreads(3)  // Минимум 3 свободных потока
-                .poolName("test3")
-                .rejectedHandler(new DiscardPolicy())
-                .build();
-
-        // Отправляем задачи с паузами, чтобы создать простой
-        for (int i = 1; i <= 3; i++) {
-            final int taskId = i;
-            pool.execute(() -> {
-                logger.info("=== Задача " + taskId + " (короткая) выполняется");
-                try { Thread.sleep(500); } catch (InterruptedException e) {}
-            });
-            Thread.sleep(100);
-        }
-
-        Thread.sleep(3000); // Ждем, чтобы потоки вошли в idle
-
-        // Должны увидеть, что minSpareThreads поддерживается
-        logger.info("Отправляем новую задачу для проверки наличия резервных потоков");
+        // Первая задача займет поток
         pool.execute(() -> {
-            logger.info("=== Резервный поток мгновенно подхватил задачу");
+            try {
+                logger.info("=== Долгая задача началась");
+                Thread.sleep(3000);
+                logger.info("=== Долгая задача завершилась");
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         });
 
-        Thread.sleep(3000);
+        Thread.sleep(100); // Даем время первой задаче начаться
+
+        // Вторая задача пойдет в очередь
+        pool.execute(() -> {
+            logger.info("=== Задача в очереди выполняется");
+        });
+
+        // Третья задача должна быть отклонена
+        try {
+            pool.execute(() -> {
+                logger.info("Эта задача не должна выполниться");
+            });
+        } catch (Exception e) {
+            logger.warning("!!! Задача отклонена: " + e.getMessage());
+        }
+
+        Thread.sleep(4000);
         pool.shutdown();
+        pool.awaitTermination(2, TimeUnit.SECONDS);
     }
 
-    private static void testShutdown() throws InterruptedException {
-        logger.info("\n--- Тест 4: Проверка shutdown и graceful завершения ---");
+    private static void testMultipleTasks() throws InterruptedException {
+        logger.info("\n--- Тест 3: Множество задач ---");
 
         CustomThreadPoolExecutor pool = new CustomThreadPoolExecutor.Builder()
                 .corePoolSize(3)
-                .maxPoolSize(6)
                 .queueSize(10)
-                .poolName("test4")
+                .poolName("multi")
                 .build();
 
-        // Отправляем долгие задачи
-        for (int i = 1; i <= 8; i++) {
+        // Отправляем 10 задач
+        for (int i = 1; i <= 10; i++) {
             final int taskId = i;
             pool.execute(() -> {
                 try {
-                    logger.info("=== Долгая задача " + taskId + " старт");
-                    Thread.sleep(3000);
-                    logger.info("=== Долгая задача " + taskId + " финиш");
+                    logger.info("=== Задача " + taskId + " выполняется");
+                    Thread.sleep(500);
+                    logger.info("=== Задача " + taskId + " завершена");
                 } catch (InterruptedException e) {
-                    logger.info("=== Долгая задача " + taskId + " прервана");
+                    Thread.currentThread().interrupt();
+                }
+            });
+            Thread.sleep(50);
+        }
+
+        Thread.sleep(6000);
+        pool.shutdown();
+        pool.awaitTermination(2, TimeUnit.SECONDS);
+    }
+
+    private static void testShutdown() throws InterruptedException {
+        logger.info("\n--- Тест 4: Проверка shutdown ---");
+
+        CustomThreadPoolExecutor pool = new CustomThreadPoolExecutor.Builder()
+                .corePoolSize(2)
+                .queueSize(5)
+                .poolName("shutdown")
+                .build();
+
+        // Отправляем задачи
+        for (int i = 1; i <= 4; i++) {
+            final int taskId = i;
+            pool.execute(() -> {
+                try {
+                    logger.info("=== Задача " + taskId + " старт");
+                    Thread.sleep(2000);
+                    logger.info("=== Задача " + taskId + " финиш");
+                } catch (InterruptedException e) {
+                    logger.info("=== Задача " + taskId + " прервана");
                 }
             });
         }
 
-        Thread.sleep(1000);
+        Thread.sleep(500);
         logger.info("Вызываем shutdown...");
         pool.shutdown();
 
@@ -168,6 +161,7 @@ public class Main {
             logger.warning("Задача после shutdown отклонена: " + e.getMessage());
         }
 
-        Thread.sleep(5000);
+        pool.awaitTermination(5, TimeUnit.SECONDS);
+        logger.info("Пул полностью остановлен");
     }
 }

@@ -7,8 +7,7 @@ public class AbortPolicy implements RejectedTaskHandler {
     
     @Override
     public void rejected(Runnable task, CustomThreadPoolExecutor executor) {
-        String taskDesc = task.toString();
-        logger.warning("[Rejected] Task " + taskDesc + " was rejected due to overload!");
-        throw new RuntimeException("Task rejected: " + taskDesc);
+        logger.warning("[Rejected] Task rejected");
+        throw new RuntimeException("Task rejected");
     }
 }
